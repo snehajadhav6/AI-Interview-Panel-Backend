@@ -10,36 +10,44 @@ const safeJsonParse = require("../utils/safeJson");
 
 // VERIFY USER
 exports.verifyUser = async (req, res) => {
-  const { token, email } = req.body;
+  const { email } = req.body;
 
   try {
+    if (!email) {
+      return res.status(400).json({
+        error: "Email is required"
+      });
+    }
+
     const link = await pool.query(
-      "SELECT * FROM interview_links WHERE token=$1",
-      [token]
+      `
+      SELECT il.*
+      FROM interview_links il
+      JOIN users u ON il.user_id = u.id
+      WHERE u.email = $1
+      AND il.is_used = false
+      AND il.expires_at > NOW()
+      ORDER BY il.expires_at DESC
+      LIMIT 1
+      `,
+      [email]
     );
 
-    if (!link.rows.length)
-      return res.status(400).json({ error: "Invalid token" });
+    if (!link.rows.length) {
+      return res.status(400).json({
+        error: "No valid interview link found"
+      });
+    }
 
-    const linkData = link.rows[0];
+    return res.json({
+      token: link.rows[0].token
+    });
 
-    if (linkData.is_used)
-      return res.status(400).json({ error: "Link already used" });
-
-    if (new Date(linkData.expires_at) < new Date())
-      return res.status(400).json({ error: "Link expired" });
-
-    const user = await pool.query(
-      "SELECT * FROM users WHERE id=$1 AND email=$2",
-      [linkData.user_id, email]
-    );
-
-    if (!user.rows.length)
-      return res.status(401).json({ error: "Invalid email" });
-
-    res.json({ message: "Verified" });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({
+      error: "Server error"
+    });
   }
 };
 
